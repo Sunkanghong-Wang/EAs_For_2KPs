@@ -1,0 +1,1071 @@
+package com.wskh.solvers.GTKP;
+
+import com.wskh.classes.*;
+import com.wskh.solvers.TOPP.TOPP_UnSafe_Solver;
+import com.wskh.utils.*;
+import ilog.concert.IloException;
+import ilog.concert.IloIntVar;
+import ilog.concert.IloLinearNumExpr;
+import ilog.concert.IloRange;
+import ilog.cplex.IloCplex;
+
+import java.util.*;
+
+public class GTKP_UnSafe_Solver {
+
+    private void getReducedItemList() {
+        // 根据对偶值缩减项目集合
+        List<LongValue_Item> reducedItemList = new ArrayList<>(curN);
+        for (int i = 0; i < curN; i++) {
+            LongValue_Item itemI = items[i];
+            boolean canBeRemove = true;
+            if (itemI.value > 0) {
+                canBeRemove = false;
+            } else {
+                int iId = itemI.id;
+                for (int j = 0; j < curN; j++) {
+                    LongValue_Item itemJ = items[j];
+                    if (fat[iId] == fat[itemJ.id] && itemJ.value > 0) {
+                        canBeRemove = false;
+                        break;
+                    }
+                }
+            }
+            if (!canBeRemove) reducedItemList.add(itemI.copy());
+        }
+        curN = reducedItemList.size();
+        items = new LongValue_Item[curN];
+        for (int i = 0; i < curN; i++) items[i] = reducedItemList.get(i);
+    }
+
+    public void getReducedActivateSrCutList(List<SR_Cut> init_srCutList) {
+        List<SR_Cut> reducedActivateSrCutList = new ArrayList<>(init_srCutList.size());
+        boolean[] used = new boolean[n];
+        for (Item item : items) used[item.id] = true;
+        for (SR_Cut sr : init_srCutList) {
+            int c = 0;
+            for (int index : sr.indexs) if (used[index]) c++;
+            if (c >= 2) reducedActivateSrCutList.add(sr);
+        }
+        SR_Pie = reducedActivateSrCutList.size();
+        srCutList = new SR_Cut[SR_Pie];
+        for (int i = 0; i < SR_Pie; i++) {
+            srCutList[i] = reducedActivateSrCutList.get(i);
+        }
+    }
+
+    public void preprocessing() {
+        while (true) {
+            // shrinkingBin
+            boolean b1 = false;
+
+            int[] dpX = new int[W + 1];
+            int[] dpY = new int[H + 1];
+            for (Item item : items) {
+                int w = item.w;
+                int h = item.h;
+                for (int j = W; j >= w; j--) dpX[j] = Math.max(dpX[j], dpX[j - w] + w);
+                for (int j = H; j >= h; j--) dpY[j] = Math.max(dpY[j], dpY[j - h] + h);
+            }
+            int newW = dpX[W];
+            int newH = dpY[H];
+
+            int S = newW * newH;
+            if (S < W * H) {
+                W = newW;
+                H = newH;
+                b1 = true;
+            }
+
+            // enlargingItems
+            boolean b2 = false;
+            for (int i = 0; i < curN; i++) {
+
+                LongValue_Item itemI = items[i];
+                newW = W - itemI.w;
+                newH = H - itemI.h;
+                dpX = new int[newW + 1];
+                dpY = new int[newH + 1];
+                // 遍历物品
+                for (int j = 0; j < curN; j++) {
+                    if (j != i) {
+                        Item itemJ = items[j];
+                        int w = itemJ.w;
+                        int h = itemJ.h;
+                        // 遍历背包容量
+                        for (int k = newW; k >= w; k--) dpX[k] = Math.max(dpX[k], dpX[k - w] + w);
+                        for (int k = newH; k >= h; k--) dpY[k] = Math.max(dpY[k], dpY[k - h] + h);
+                    }
+                }
+                newW = W - dpX[newW];
+                newH = H - dpY[newH];
+
+                int s = newW * newH;
+                if (s > itemI.s) {
+                    itemI.s = s;
+                    itemI.w = newW;
+                    itemI.h = newH;
+                    itemI.unitValue = (double) itemI.value / itemI.s;
+                    b2 = true;
+                }
+            }
+
+            if (!b1 && !b2) break;
+        }
+    }
+
+    Random random;
+
+    public GTKP_UnSafe_Solver(Random random) {
+        this.random = random;
+    }
+
+    long[] dpArr;
+
+    private void computeUpperBound() {
+        S = W * H;
+        int max_k = Math.min(4, (int) (1000000L / ((long) S * curN)));
+        int[][] conservativeScalesArr = new int[max_k + 1][curN];
+
+        for (int i = 0; i < curN; i++) conservativeScalesArr[0][i] = items[i].s;
+        for (int k = 1; k <= max_k; k++) {
+            for (int i = 0; i < curN; i++) {
+                conservativeScalesArr[k][i] = DffUtil.dff0(k, S, items[i].s);
+            }
+        }
+
+        for (int[] conservativeScales : conservativeScalesArr) {
+            long[] dp = new long[S + 1];
+            for (int u = 0; u < conservativeScales.length; u++) {
+                int w = conservativeScales[u];
+                long v = items[u].value;
+                for (int j = S; j >= w; j--) {
+                    dp[j] = Math.max(dp[j], dp[j - w] + v);
+                }
+            }
+            if (dpArr == null) {
+                dpArr = dp;
+            } else {
+                for (int j = 0; j < dpArr.length; j++) {
+                    dpArr[j] = Math.min(dpArr[j], dp[j]);
+                }
+            }
+        }
+        UB0_KP = dpArr[S];
+        UB0 = UB0_KP;
+        UB = UB0_KP;
+    }
+
+    private void addPosInList(List<Integer> list, int pos) {
+        for (int i = 0; i < list.size(); i++) {
+            int x = list.get(i);
+            if (x == pos) return;
+            if (x > pos) {
+                list.add(i, pos);
+                return;
+            }
+        }
+        list.add(pos);
+    }
+
+    public class LazyCallback extends IloCplex.LazyConstraintCallback {
+        IloIntVar[][] x;
+        boolean xFirst;
+        IloCplex masterModel;
+        List<Integer>[] listList;
+        List<Integer> R;
+
+        public LazyCallback(IloIntVar[][] x, boolean xFirst, IloCplex masterModel, List<Integer>[] listList, List<Integer> R) {
+            this.x = x;
+            this.xFirst = xFirst;
+            this.masterModel = masterModel;
+            this.listList = listList;
+            this.R = R;
+        }
+
+        public void main() throws IloException {
+
+//            for (int[] conflict : conflictList) {
+//                int i = conflict[0];
+//                int j = conflict[1];
+//                if (i > j) {
+//                    j = i ^ j;
+//                    i = i ^ j;
+//                    j = i ^ j;
+//                }
+//                double v = 0;
+//                System.out.println("---------------------------");
+//                for (IloIntVar iloIntVar : x[i]) {
+//                    System.out.println(iloIntVar.getName()+" : "+getValue(iloIntVar)+" "+iloIntVar.getLB()+" "+iloIntVar.getUB());
+//                    v += getValue(iloIntVar);
+//                }
+//                for (IloIntVar iloIntVar : x[j]) {
+//                    System.out.println(iloIntVar.getName()+" : "+getValue(iloIntVar)+" "+iloIntVar.getLB()+" "+iloIntVar.getUB());
+//                    v += getValue(iloIntVar);
+//                }
+//                if(v > 1.0000001){
+//                    System.out.println(v);
+//                    System.out.println(1/0);
+//                }
+//            }
+
+            System.out.print("\t Join lazyCut => ");
+            List<PlaceItem> placeItemList = new ArrayList<>();
+            for (int i = 0; i < curN; i++) {
+                for (int j = 0; j < x[i].length; j++) {
+                    if (getValue(x[i][j]) > 0.5) {
+                        Item item = items[i];
+                        if (!xFirst) {
+                            placeItemList.add(new PlaceItem(item.id, item.index, 0, yListList[i].get(j), item.w, item.h, item.s));
+                        } else {
+                            placeItemList.add(new PlaceItem(item.id, item.index, xListList[i].get(j), 0, item.w, item.h, item.s));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            long startTime = System.currentTimeMillis();
+            boolean check = checker.check(placeItemList);
+            System.out.print(getObjValue() + " => ");
+            System.out.print("check: " + (System.currentTimeMillis() - startTime) + " ms");
+            if (!TimeUtil.isTimeLimit()) {
+                if (check) {
+                    System.out.println(" => true");
+                    UB = Math.min(UB, CommonUtil.ceilToLong(getBestObjValue()));
+                    long objValue = Math.round(getObjValue());
+                    if (objValue > LB) {
+                        bestPlaceItemList = placeItemList;
+                        LB = objValue;
+                        System.out.println("\t Find better pattern with objective value: " + objValue);
+                    }
+                    if (UB == LB) throw new EarlyTerminationException();
+                } else {
+                    long s = System.currentTimeMillis();
+                    System.out.println(" => false");
+                    TOPP_UnSafe_Solver oppSolver = new TOPP_UnSafe_Solver(random);
+                    Item[] oppItems = new Item[placeItemList.size()];
+                    for (int i = 0; i < placeItemList.size(); i++)
+                        oppItems[i] = items[idIndexMap[placeItemList.get(i).id]].copy();
+                    List<PlaceItem> oppResList = oppSolver.solve(W, H, n, oppItems);
+                    oppCnt++;
+                    exactOppCnt += oppSolver.exactOppCnt;
+                    exactOppTime += oppSolver.exactOppTime;
+                    oppTime += (System.currentTimeMillis() - s);
+                    if (oppResList != null && oppResList.size() == placeItemList.size()) {
+                        long objValue = Math.round(getObjValue());
+                        if (objValue > LB) {
+                            bestPlaceItemList = oppResList;
+                            LB = objValue;
+                            System.out.println("\t Find better pattern with objective value: " + objValue);
+                        }
+                        if (UB == LB) throw new EarlyTerminationException();
+                    }
+                    System.out.println("\t => 2OPP: " + (System.currentTimeMillis() - s) + " ms");
+                    if (!TimeUtil.isTimeLimit()) {
+                        IloLinearNumExpr cut = masterModel.linearNumExpr();
+                        for (PlaceItem placeItem : placeItemList) {
+                            IloIntVar[] x1 = x[idIndexMap[placeItem.id]];
+                            for (IloIntVar iloIntVar : x1) cut.addTerm(1, iloIntVar);
+                        }
+                        addLocal(masterModel.le(cut, placeItemList.size() - 1));
+                    }
+                }
+            }
+        }
+    }
+
+    YCheckUtil checker;
+    public long exploredNodes;
+    public long generatedNodes;
+
+    private void combinatorialBendersDecomposition(boolean xFirst, boolean haveNull) throws Exception {
+        checker = new YCheckUtil(W, H, xFirst, n);
+
+        List<Integer>[] listList = (xFirst ? xListList : yListList);
+        List<Integer> R = (xFirst ? xList : yList);
+        IloCplex masterModel = new IloCplex();
+        masterModel.setOut(null);
+        masterModel.setWarning(null);
+        masterModel.setParam(IloCplex.IntParam.Threads, 1);
+//        masterModel.setParam(IloCplex.Param.Preprocessing.Presolve,false);
+//        masterModel.setParam(IloCplex.Param.Simplex.Tolerances.Feasibility, 1e-9);
+//        masterModel.setParam(IloCplex.Param.Simplex.Tolerances.Optimality, 1e-9);
+//        masterModel.setParam(IloCplex.Param.Emphasis.Numerical, true);
+
+        IloIntVar[][] x = new IloIntVar[curN][];
+        IloLinearNumExpr[] y = new IloLinearNumExpr[curN];
+        for (int i = 0; i < curN; i++) {
+            y[i] = masterModel.linearNumExpr();
+            x[i] = masterModel.boolVarArray(listList[i].size());
+            for (int j = 0; j < x[i].length; j++) {
+                y[i].addTerm(1, x[i][j]);
+            }
+            masterModel.addLe(y[i], 1);
+        }
+
+        IloLinearNumExpr[] binV = new IloLinearNumExpr[R.size()];
+        boolean[][] dpBools = new boolean[R.size()][curN];
+        for (int i = 0; i < binV.length; i++) binV[i] = masterModel.linearNumExpr();
+        for (int i = 0; i < curN; i++) {
+            Item item = items[i];
+            List<Integer> intArrayList = listList[i];
+            int w = (xFirst ? item.w : item.h);
+            int h = (xFirst ? item.h : item.w);
+            for (int j = 0; j < intArrayList.size(); j++) {
+                int xj = intArrayList.get(j);
+                for (int k = 0; k < R.size(); k++) {
+                    int q = R.get(k);
+                    if (q >= xj && q <= xj + w - 1) {
+                        binV[k].addTerm(h, x[i][j]);
+                        dpBools[k][i] = true;
+                    }
+                }
+            }
+        }
+        for (int k = 0; k < binV.length; k++) {
+            int C = (xFirst ? H : W);
+            int[] dp = new int[C + 1];
+            for (Item item : items) {
+                int i = item.index;
+                if (dpBools[k][i]) {
+                    int c = (xFirst ? item.h : item.w);
+                    for (int j = C; j >= c; j--) dp[j] = Math.max(dp[j], dp[j - c] + c);
+                }
+            }
+            masterModel.addLe(binV[k], dp[C]);
+        }
+
+        // obj function
+        IloLinearNumExpr target = masterModel.linearNumExpr();
+        for (int i = 0; i < curN; i++) {
+            long pi = items[i].value;
+            for (int j = 0; j < x[i].length; j++) {
+                target.addTerm(pi, x[i][j]);
+            }
+        }
+
+        for (SR_Cut srCut : srCutList) {
+            IloIntVar fai = masterModel.boolVar();
+            int[] indexs = srCut.indexs;
+            for (int i = 0; i < 2; i++) {
+                if (indexs[i] != -1) {
+                    for (int j = i + 1; j < 3; j++) {
+                        if (indexs[j] != -1) {
+                            IloLinearNumExpr expr = masterModel.linearNumExpr();
+                            expr.addTerm(-1, fai);
+                            expr.add(y[indexs[i]]);
+                            expr.add(y[indexs[j]]);
+                            masterModel.addLe(expr, 1);
+                        }
+                    }
+                }
+            }
+            target.addTerm(-srCut.penalty, fai);
+        }
+
+        masterModel.addMaximize(target);
+
+        // Conflict-Based Cuts
+        Set<String> set = new HashSet<>();
+        for (int[] conflict : conflictList) {
+            int i = conflict[0];
+            int j = conflict[1];
+            if (i > j) {
+                j = i ^ j;
+                i = i ^ j;
+                j = i ^ j;
+            }
+            if (set.add(i + "," + j)) {
+                masterModel.addLe(masterModel.sum(y[i], y[j]), 1);
+            }
+        }
+
+        for (int i = 0; i < curN; i++) {
+            Item itemI = items[i];
+            for (int j = i + 1; j < curN; j++) {
+                Item itemJ = items[j];
+                if (itemI.w + itemJ.w > W && itemI.h + itemJ.h > H) {
+                    if (set.add(i + "," + j)) {
+                        masterModel.addLe(masterModel.sum(y[i], y[j]), 1);
+                    }
+                }
+            }
+        }
+
+        // Bind Cuts
+        for (int i = 0; i < curN; i++) {
+            if (fat[i] != i) masterModel.addEq(y[i], y[fat[i]]);
+        }
+
+        // Dominace-Based Cuts
+//        for (int i = 0; i < curN; i++) {
+//            List<Integer> listI = listList[i];
+//            for (int j : dominateArr1[i]) {
+//                List<Integer> listJ = listList[j];
+//                IloLinearNumExpr expr = masterModel.linearNumExpr();
+//                for (int p = 0; p < listI.size(); p++) expr.addTerm(listI.get(p), x[i][p]);
+//                for (int q = 0; q < listJ.size(); q++) expr.addTerm(-listJ.get(q), x[j][q]);
+//                masterModel.addGe(expr, 0);
+//                masterModel.addGe(y[i], y[j]);
+//            }
+//        }
+
+        for (int i = 0; i < curN; i++) {
+            LongValue_Item itemI = items[i];
+            List<Integer> listI = listList[i];
+            for (int j : dominateArr1[i]) {
+                LongValue_Item itemJ = items[j];
+                if (itemI.w == itemJ.w && itemI.h == itemJ.h) {
+                    List<Integer> listJ = listList[j];
+                    IloLinearNumExpr expr = masterModel.linearNumExpr();
+                    for (int p = 0; p < listI.size(); p++) expr.addTerm(listI.get(p), x[i][p]);
+                    for (int q = 0; q < listJ.size(); q++) expr.addTerm(-listJ.get(q), x[j][q]);
+                    masterModel.addGe(expr, 0);
+                }
+                masterModel.addGe(y[i], y[j]);
+            }
+        }
+
+        for (int index : pPie) masterModel.addEq(y[index], 1);
+
+        // Bound-Based Cuts
+        masterModel.addLe(target, UB);
+        masterModel.addGe(target, LB);
+//        masterModel.setParam(IloCplex.Param.MIP.Tolerances.UpperCutoff, UB);
+//        masterModel.setParam(IloCplex.Param.MIP.Tolerances.LowerCutoff, LB);
+
+        if (!haveNull) {
+            // add init solution
+            double[][] values = new double[curN][];
+            int size = 0;
+            for (int i = 0; i < curN; i++) {
+                values[i] = new double[listList[i].size()];
+                size += values[i].length;
+            }
+            for (PlaceItem placeItem : bestPlaceItemList) {
+                int pos = xFirst ? placeItem.x : placeItem.y;
+                int itemIndex = idIndexMap[placeItem.id];
+                List<Integer> posList = listList[itemIndex];
+                int posIndex = -1;
+                for (int i = 0; i < posList.size(); i++) {
+                    if (posList.get(i) == pos) {
+                        posIndex = i;
+                        break;
+                    }
+                }
+                values[itemIndex][posIndex] = 1;
+            }
+            double[] initValues = new double[size];
+            IloIntVar[] iloIntVars = new IloIntVar[size];
+            int c = 0;
+            for (int i = 0; i < x.length; i++) {
+                for (int j = 0; j < x[i].length; j++) {
+                    initValues[c] = values[i][j];
+                    iloIntVars[c++] = x[i][j];
+                }
+            }
+            masterModel.addMIPStart(iloIntVars, initValues);
+        }
+
+        masterModel.use(new LazyCallback(x, xFirst, masterModel, listList, R));
+
+        masterModel.setParam(IloCplex.DoubleParam.TimeLimit, TimeUtil.getRemainingTime() / 1000d);
+        try {
+            masterModel.solve();
+            IloCplex.Status status = masterModel.getStatus();
+            if (status.equals(IloCplex.Status.Infeasible) || status.equals(IloCplex.Status.Optimal)) UB = LB;
+        } catch (EarlyTerminationException e) {
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        exploredNodes = masterModel.getNnodes();
+        long unexploredNodes = masterModel.getNnodesLeft();
+        generatedNodes = exploredNodes + unexploredNodes;
+        masterModel.end();
+    }
+
+    HashSet<Integer> pPie = new HashSet<>();
+
+    private void redQuick(List<int[]> bindList) {
+        redTime = System.currentTimeMillis();
+        boolean relax = (long) S * curN > 1000000L;
+        List<Integer> indexList = new ArrayList<>(curN);
+        for (int i = 0; i < curN; i++) indexList.add(i);
+        indexList.sort((o1, o2) -> Long.compare(items[o1].value, items[o2].value));
+
+        // 开始 dominate 缩减
+        boolean[] out = new boolean[curN];
+        for (int i : indexList) {
+            if (out[i] || pPie.contains(i)) continue;
+
+            // 计算放了i之后必须放的物品id
+            Set<Integer> mustPackedItemIndexSet = new HashSet<>(pPie);
+            for (int j : eachItemSameIndexList[i]) mustPackedItemIndexSet.add(j);
+            boolean[] mustBolArray = new boolean[n];
+            for (int index : mustPackedItemIndexSet) mustBolArray[index] = true;
+
+            // (a) Free conflict
+            boolean haveConflict = false;
+            for (int j : mustPackedItemIndexSet) {
+                if (out[j]) {
+                    haveConflict = true;
+                    break;
+                }
+                for (int k : eachItemDifIndexList[j]) {
+                    if (mustBolArray[k]) {
+                        haveConflict = true;
+                        break;
+                    }
+                }
+                if (haveConflict) break;
+            }
+            if (haveConflict) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            // (b) Free area
+            int mustPackedS = 0;
+            for (int j : mustPackedItemIndexSet) mustPackedS += items[j].s;
+            if (mustPackedS > S) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            // (c) Free cost
+            long cost = 0;
+            for (int j : mustPackedItemIndexSet) cost += items[j].value;
+            for (SR_Cut srCut : srCutList) {
+                int cnt = 0;
+                for (int index : srCut.indexs) {
+                    if (index != -1 && mustBolArray[index]) cnt++;
+                }
+                if (cnt >= 2) cost -= srCut.penalty;
+            }
+            if (cost > UB) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            // (d) Free number
+            int totalW = 0;
+            int nx = 0;
+            List<Integer> wList = new ArrayList<>();
+            for (int j : mustPackedItemIndexSet) {
+                boolean b = true;
+                Item itemJ = items[j];
+                for (int k : mustPackedItemIndexSet) {
+                    if (k != j) {
+                        Item itemK = items[k];
+                        if (itemK.h + itemJ.h <= H) {
+                            b = false;
+                            break;
+                        }
+                    }
+                }
+                if (b) {
+                    totalW += itemJ.w;
+                    nx++;
+                } else {
+                    wList.add(itemJ.w);
+                }
+            }
+            if (totalW > W) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+            int totalH = 0;
+            int ny = 0;
+            List<Integer> hList = new ArrayList<>();
+            for (int j : mustPackedItemIndexSet) {
+                boolean b = true;
+                Item itemJ = items[j];
+                for (int k : mustPackedItemIndexSet) {
+                    if (k != j) {
+                        Item itemK = items[k];
+                        if (itemK.w + itemJ.w <= W) {
+                            b = false;
+                            break;
+                        }
+                    }
+                }
+                if (b) {
+                    totalH += itemJ.h;
+                    ny++;
+                } else {
+                    hList.add(itemJ.h);
+                }
+            }
+            if (totalH > H) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            Collections.sort(wList);
+            totalW = W - totalW;
+            for (int w : wList) {
+                totalW -= w;
+                if (totalW >= 0) {
+                    nx++;
+                } else {
+                    break;
+                }
+            }
+            Collections.sort(hList);
+            totalH = H - totalH;
+            for (int h : hList) {
+                totalH -= h;
+                if (totalH >= 0) {
+                    ny++;
+                } else {
+                    break;
+                }
+            }
+            if (nx * ny < mustPackedItemIndexSet.size()) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            // (e) Area program
+            int remainS = S - mustPackedS;
+            if (relax) {
+                cost += dpArr[remainS];
+            } else {
+                boolean[] bs = new boolean[curN];
+                for (int j : mustPackedItemIndexSet) bs[j] = true;
+                for (int j : eachItemDifIndexList[i]) bs[j] = true;
+
+                long[] dp = new long[remainS + 1];
+                for (LongValue_Item item : items) {
+                    if (!out[item.index] && !bs[item.index]) {
+                        int w = item.s;
+                        long v = item.value;
+                        // 遍历背包容量
+                        for (int j = remainS; j >= w; j--) dp[j] = Math.max(dp[j], dp[j - w] + v);
+                    }
+                }
+                cost += dp[remainS];
+            }
+            if (cost <= LB) {
+                for (int j : eachItemOutAfterOutList[i]) out[j] = true;
+                continue;
+            }
+
+            // (f) Update I_in
+            cost = 0;
+            remainS = S;
+            boolean[] tempOut = new boolean[curN];
+            for (int j : pPie) {
+                tempOut[j] = true;
+                remainS -= items[j].s;
+                cost += items[j].value;
+            }
+
+            for (SR_Cut srCut : srCutList) {
+                int cnt = 0;
+                for (int index : srCut.indexs) {
+                    if (index != -1 && tempOut[index]) cnt++;
+                }
+                if (cnt >= 2) cost -= srCut.penalty;
+            }
+
+            if (relax) {
+                cost += dpArr[remainS];
+            } else {
+
+                for (int j : eachItemOutAfterOutList[i]) tempOut[j] = true;
+
+                long[] dp = new long[remainS + 1];
+                for (int j = 0; j < curN; j++) {
+                    if (!out[j] && !tempOut[j]) {
+                        LongValue_Item itemJ = items[j];
+                        int w = itemJ.s;
+                        long v = itemJ.value;
+                        // 遍历背包容量
+                        for (int k = remainS; k >= w; k--) {
+                            dp[k] = Math.max(dp[k], dp[k - w] + v);
+                        }
+                    }
+                }
+                cost += dp[remainS];
+            }
+            if (cost <= LB) {
+                pPie.addAll(mustPackedItemIndexSet);
+                for (int j : mustPackedItemIndexSet) {
+                    for (int k : eachItemDifIndexList[j]) out[k] = true;
+                }
+            }
+        }
+
+        I_in = pPie.size();
+        I_out = 0;
+        List<LongValue_Item> reducedItemList = new ArrayList<>();
+        for (LongValue_Item item : items) {
+            if (out[item.index]) {
+                I_out++;
+            } else {
+                reducedItemList.add(item);
+            }
+        }
+
+        if (reducedItemList.size() < curN) {
+            Integer[] idIndexMap = new Integer[n];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                idIndexMap[reducedItemList.get(i).id] = i;
+            }
+
+            ArrayList<Integer> copyP = new ArrayList<>(pPie);
+            pPie.clear();
+            for (int index : copyP) pPie.add(idIndexMap[items[index].id]);
+
+            int[][] tempEachItemDifIndexList = new int[reducedItemList.size()][];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                List<Integer> list = new ArrayList<>();
+                for (int j : eachItemDifIndexList[reducedItemList.get(i).index]) {
+                    Integer integer = idIndexMap[items[j].id];
+                    if (integer != null) list.add(integer);
+                }
+                int[] arr = new int[list.size()];
+                for (int j = 0; j < arr.length; j++) arr[j] = list.get(j);
+                tempEachItemDifIndexList[i] = arr;
+            }
+            eachItemDifIndexList = tempEachItemDifIndexList;
+
+            int[][] tempEachItemSameIndexList = new int[reducedItemList.size()][];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                List<Integer> list = new ArrayList<>();
+                for (int j : eachItemSameIndexList[reducedItemList.get(i).index]) {
+                    Integer integer = idIndexMap[items[j].id];
+                    if (integer != null) list.add(integer);
+                }
+                int[] arr = new int[list.size()];
+                for (int j = 0; j < arr.length; j++) arr[j] = list.get(j);
+                tempEachItemSameIndexList[i] = arr;
+            }
+            eachItemSameIndexList = tempEachItemSameIndexList;
+
+            int[][] tempEachItemOutAfterOutList = new int[reducedItemList.size()][];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                List<Integer> list = new ArrayList<>();
+                for (int j : eachItemOutAfterOutList[reducedItemList.get(i).index]) {
+                    Integer integer = idIndexMap[items[j].id];
+                    if (integer != null) list.add(integer);
+                }
+                int[] arr = new int[list.size()];
+                for (int j = 0; j < arr.length; j++) arr[j] = list.get(j);
+                tempEachItemOutAfterOutList[i] = arr;
+            }
+            eachItemOutAfterOutList = tempEachItemOutAfterOutList;
+
+            HashSet<Integer>[] tempDominateListArr1 = new HashSet[reducedItemList.size()];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                HashSet<Integer> list = new HashSet<>();
+                for (int j : dominateArr1[reducedItemList.get(i).index]) {
+                    Integer integer = idIndexMap[items[j].id];
+                    if (integer != null) list.add(integer);
+                }
+                tempDominateListArr1[i] = list;
+            }
+            dominateArr1 = tempDominateListArr1;
+
+            // 修改冲突约束
+            List<int[]> newConflictList = new ArrayList<>();
+            for (int[] conflict : conflictList) {
+                if (!out[conflict[0]] && !out[conflict[1]]) {
+                    conflict[0] = idIndexMap[items[conflict[0]].id];
+                    conflict[1] = idIndexMap[items[conflict[1]].id];
+                    newConflictList.add(conflict);
+                }
+            }
+            conflictList = newConflictList;
+            Ed_Pie = conflictList.size();
+
+            // 修改绑定约束
+            List<int[]> newBindList = new ArrayList<>();
+            for (int[] bind : bindList) {
+                if (!out[bind[0]] && !out[bind[1]]) {
+                    bind[0] = idIndexMap[items[bind[0]].id];
+                    bind[1] = idIndexMap[items[bind[1]].id];
+                    newBindList.add(bind);
+                }
+            }
+            bindList = newBindList;
+            UnionFind uf = new UnionFind(curN);
+            for (int[] bind : bindList) uf.union(bind[0], bind[1]);
+            fat = uf.fat.clone();
+            for (int i = 0; i < curN; i++) fat[i] = uf.find(i);
+            Es_Pie = bindList.size();
+
+            // 修改SR约束
+            List<SR_Cut> newSrCutList = new ArrayList<>();
+            for (SR_Cut srCut : srCutList) {
+                int[] indexs = srCut.indexs;
+                int cnt = 0;
+                for (int i = 0; i < 3; i++) {
+                    if (indexs[i] == -1) continue;
+                    Integer j = idIndexMap[items[indexs[i]].id];
+                    if (j == null) {
+                        indexs[i] = -1;
+                    } else {
+                        indexs[i] = j;
+                        cnt++;
+                    }
+                }
+                if (cnt >= 2) newSrCutList.add(srCut);
+            }
+            srCutList = newSrCutList.toArray(new SR_Cut[0]);
+            srCutNum = srCutList.length;
+            SR_Pie = srCutNum;
+
+            items = new LongValue_Item[reducedItemList.size()];
+            for (int i = 0; i < reducedItemList.size(); i++) {
+                items[i] = reducedItemList.get(i);
+                items[i].index = i;
+            }
+            curN = reducedItemList.size();
+        }
+
+        // 必须打包
+        long initValue = 0;
+        List<Item> mustPackedItemList = new ArrayList<>();
+        for (int bindA : pPie) {
+            initValue += items[bindA].value;
+            mustPackedItemList.add(items[bindA]);
+        }
+
+        redTime = System.currentTimeMillis() - redTime;
+        System.out.println("curN = " + curN + " , I_out = " + I_out + " , I_in = " + I_in + " => " + redTime + " ms");
+
+        if (initValue > LB) {
+            // 进行 Opp check
+            TOPP_UnSafe_Solver oppSolver = new TOPP_UnSafe_Solver(random);
+            Item[] oppItems = new Item[mustPackedItemList.size()];
+            for (int i = 0; i < mustPackedItemList.size(); i++) oppItems[i] = mustPackedItemList.get(i).copy();
+            List<PlaceItem> placeItemList = oppSolver.solve(W, H, n, oppItems);
+            if (placeItemList == null) {
+                UB = LB;
+                System.out.println("Better UB: " + UB);
+                throw new EarlyTerminationException();
+            }
+            LB = initValue;
+            bestPlaceItemList = placeItemList;
+            System.out.println("Find better: " + LB);
+            if (LB == UB) throw new EarlyTerminationException();
+        }
+    }
+
+    public List<Integer>[] xListList;
+    public List<Integer>[] yListList;
+    public List<Integer> xList;
+    public List<Integer> yList;
+    Integer[] idIndexMap;
+    public long oppCnt;
+    public long exactOppCnt;
+    public long exactOppTime, oppTime;
+
+    int[] fatWeightArr;
+    HashSet<Integer>[] dominateArr1;
+    int[][] eachItemDifIndexList;
+    int[][] eachItemSameIndexList;
+    int[][] eachItemOutAfterOutList;
+    int srCutNum;
+
+    private void bendersDecomposition(GTKP_LS_Heu_Solver labelSettingSolver, List<int[]> bindList) {
+
+        fatWeightArr = labelSettingSolver.fatWeightArr;
+        dominateArr1 = labelSettingSolver.dominateArr1;
+        eachItemDifIndexList = labelSettingSolver.eachItemDifIndexList;
+        eachItemSameIndexList = labelSettingSolver.eachItemSameIndexList;
+        eachItemOutAfterOutList = labelSettingSolver.eachItemOutAfterOutList;
+        srCutNum = labelSettingSolver.srCutNum;
+
+        redQuick(bindList);
+
+        if (curN == 0) {
+            if (!TimeUtil.isTimeLimit()) UB = LB;
+            return;
+        }
+
+        // MIM_Pro pro
+        int[] ws = new int[curN];
+        int[] hs = new int[curN];
+        int minWIndex = -1;
+        int minW = Integer.MAX_VALUE;
+        int minHIndex = -1;
+        int minH = Integer.MAX_VALUE;
+        for (int i = 0; i < curN; i++) {
+            Item item = items[i];
+            ws[i] = item.w;
+            hs[i] = item.h;
+            if (minW > item.w) {
+                minW = item.w;
+                minWIndex = i;
+            }
+            if (minH > item.h) {
+                minH = item.h;
+                minHIndex = i;
+            }
+        }
+        xList = new ArrayList<>();
+        xListList = PointSetUtil.MIM_Pro(W, ws, xList, minWIndex);
+        yList = new ArrayList<>();
+        yListList = PointSetUtil.MIM_Pro(H, hs, yList, minHIndex);
+
+        System.out.println("xList.size: " + xList.size() + " , yList.size: " + yList.size());
+
+        idIndexMap = new Integer[n];
+        for (int i = 0; i < curN; i++) idIndexMap[items[i].id] = i;
+
+        boolean haveNull = false;
+        for (PlaceItem placeItem : bestPlaceItemList) {
+            if (idIndexMap[placeItem.id] == null) {
+                haveNull = true;
+                break;
+            }
+        }
+        if (!haveNull) {
+            for (PlaceItem placeItem : bestPlaceItemList) {
+                int itemIndex = idIndexMap[placeItem.id];
+                addPosInList(xListList[itemIndex], placeItem.x);
+                addPosInList(yListList[itemIndex], placeItem.y);
+                addPosInList(xList, placeItem.x);
+                addPosInList(yList, placeItem.y);
+            }
+        }
+
+        try {
+            combinatorialBendersDecomposition(Arrays.stream(xListList).mapToInt(List::size).sum() < Arrays.stream(yListList).mapToInt(List::size).sum(), haveNull);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public int n, curN;
+    public long UB, LB;
+    public long UB0_KP, UB0_LS, UB0, LB0;
+    public long lb0Time, ub0kpTime, ub0lsTime, redTime;
+    LongValue_Item[] items;
+    int W, H, S;
+    public List<PlaceItem> bestPlaceItemList;
+    public int I_in, I_out;
+    public int Ed_Pie, Es_Pie, SR_Pie;
+    int[] fat;
+    SR_Cut[] srCutList;
+    List<int[]> conflictList;
+
+    public void solve(int n, int initW, int initH, LongValue_Item[] init_items, int[] init_fat, List<int[]> init_conflictList, List<int[]> bindList, List<SR_Cut> init_srCutList) {
+
+        this.n = n;
+        this.items = init_items;
+        this.curN = init_items.length;
+        this.W = initW;
+        this.H = initH;
+        this.fat = init_fat;
+        this.conflictList = init_conflictList;
+
+        // 问题缩减
+        getReducedItemList();
+        getReducedActivateSrCutList(init_srCutList);
+        preprocessing();
+
+        // 排序
+        Arrays.sort(items, (o1, o2) -> {
+            int c = -Double.compare(o1.unitValue, o2.unitValue);
+            return c == 0 ? -Long.compare(o1.value, o2.value) : c;
+        });
+        for (int i = 0; i < curN; i++) items[i].index = i;
+
+        boolean[] have = new boolean[n];
+        Integer[] idIndexMap = new Integer[n];
+        for (LongValue_Item item : items) {
+            have[item.id] = true;
+            idIndexMap[item.id] = item.index;
+        }
+
+        // 修改冲突约束
+        List<int[]> newConflictList = new ArrayList<>();
+        for (int[] conflict : conflictList) {
+            if (have[conflict[0]] && have[conflict[1]]) {
+                conflict[0] = idIndexMap[conflict[0]];
+                conflict[1] = idIndexMap[conflict[1]];
+                newConflictList.add(conflict);
+            }
+        }
+        conflictList = newConflictList;
+        Ed_Pie = conflictList.size();
+
+        // 修改绑定约束
+        List<int[]> newBindList = new ArrayList<>();
+        for (int[] bind : bindList) {
+            if (have[bind[0]] && have[bind[1]]) {
+                bind[0] = idIndexMap[bind[0]];
+                bind[1] = idIndexMap[bind[1]];
+                newBindList.add(bind);
+            }
+        }
+        bindList = newBindList;
+        UnionFind uf = new UnionFind(curN);
+        for (int[] bind : bindList) uf.union(bind[0], bind[1]);
+        fat = uf.fat.clone();
+        for (int i = 0; i < curN; i++) fat[i] = uf.find(i);
+        Es_Pie = bindList.size();
+
+        // 修改SR约束
+        for (SR_Cut srCut : srCutList) {
+            int[] indexs = srCut.indexs;
+            for (int i = 0; i < 3; i++) {
+                Integer j = idIndexMap[indexs[i]];
+                if (j == null) {
+                    indexs[i] = -1;
+                } else {
+                    indexs[i] = j;
+                }
+            }
+        }
+
+        // Compute UB0
+        ub0kpTime = System.currentTimeMillis();
+        computeUpperBound();
+        ub0kpTime = System.currentTimeMillis() - ub0kpTime;
+
+        // Compute LB0
+        lb0Time = System.currentTimeMillis();
+        GTKP_LS_Heu_Solver lsHeuSolver = new GTKP_LS_Heu_Solver(n, curN, S, W, H, items, conflictList, fat, srCutList);
+        try {
+            lsHeuSolver.solve();
+        } catch (EarlyTerminationException e) {
+
+        }
+        if (lsHeuSolver.bestPlaceItemList != null) {
+            LB0 = -lsHeuSolver.minReducedCost;
+            bestPlaceItemList = lsHeuSolver.bestPlaceItemList;
+            LB = LB0;
+        }
+        lb0Time = System.currentTimeMillis() - lb0Time;
+
+        if (UB == LB) return;
+
+        // Compute UB1
+        ub0lsTime = System.currentTimeMillis();
+        try {
+            UB0_LS = new GTKP_LS_UB_Solver(lsHeuSolver).solve();
+            UB0 = Math.min(UB0, UB0_LS);
+            UB = UB0;
+        } catch (EarlyTerminationException e) {
+        }
+        ub0lsTime = System.currentTimeMillis() - ub0lsTime;
+
+        if (UB == LB) return;
+
+        // 运行 Benders 分解算法
+        try {
+            bendersDecomposition(lsHeuSolver, newBindList);
+        } catch (EarlyTerminationException e) {
+        }
+
+    }
+
+}

@@ -1,0 +1,16 @@
+The instances are kindly provided by Thiago Alves de Queiroz.
+
+Each file is organized as follows:
+
+- Number of items
+- Number of conflicts
+- Size of the rectangular bin W x H
+
+- 1st item w x h and value (if 0 means equal to item's area)
+- 2nd item. . . and so on
+
+- 1st pair of items conflicting each other
+- 2nd pair of items . . . and so on
+
+- Instance name 
+- Other file information

@@ -1,0 +1,19 @@
+Instances downloaded from:
+http://or.dei.unibo.it/library/2dpacklib
+
+The instances are in the following format:
+
+m
+W H
+i w_i h_i d_i b_i p_i (for each i=1,...,m)
+
+where:
+m: number of items
+W: width of the bin
+H: height of the bin
+i: item ID (starting from 1)
+w_i: width of item i
+h_i: height of item i
+d_i: demand of item i (minimum number of copies to be packed)
+b_i: maximum number of copies of item i
+p_i: profit of item i

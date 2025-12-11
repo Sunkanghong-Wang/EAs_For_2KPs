@@ -1,0 +1,15 @@
+All 2KP instances are in the following format:
+
+m
+W H
+i w_i h_i n_i p_i (for each i=1,...,m)
+
+where:
+m: number of items
+W: width of the bin
+H: height of the bin
+i: item ID (starting from 1)
+w_i: width of item i
+h_i: height of item i
+n_i: number of copies of item i
+p_i: profit of item i

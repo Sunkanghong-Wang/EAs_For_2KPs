@@ -1,0 +1,20 @@
+All G2KP instances are in the following format:
+
+n
+W H
+i w_i h_i p_i (for each i=1,...,n)
+j^k (for each {j,k} in E_d)
+j&k (for each {j,k} in E_s)
+j-k-l-e (for each item triplet {j,k,l} with penalty of e in T)
+
+where:
+n: number of items
+W: width of the bin
+H: height of the bin
+i: item ID (starting from 1)
+w_i: width of item i
+h_i: height of item i
+p_i: profit of item i
+E_d: edge set of the different-bin graph
+E_s: edge set of the same-bin graph
+T: set of item triplets
