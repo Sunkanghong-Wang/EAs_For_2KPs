@@ -8,7 +8,7 @@ This archive is distributed in association with the [INFORMS Journal on Computin
 
 The software and data in this repository are a snapshot of the software and data that were used in the research reported on in the paper [Exact Algorithms for Two-Dimensional Knapsack Problems: A Unified Framework with New Benchmark Results](https://doi.org/10.1287/ijoc.2025.1423) by Sunkanghong Wang, Roberto Baldacci, Fabio Furini, Lijun Wei, and Qiang Liu. This snapshot corresponds to the version used in the published paper.
 
-**Important: This repository is being developed on an on-going basis at https://github.com/WSKH0929/EAs_For_2DKPs. Please go there if you would like to get a more recent version or would like support**.
+**Important: This repository is being developed on an on-going basis at https://github.com/WSKH0929/EAs_For_2KPs. Please go there if you would like to get a more recent version or would like support**.
 
 ## 🏷️ Cite
 
@@ -26,7 +26,7 @@ Below is the BibTex for citing this snapshot of the repository.
   publisher =     {INFORMS Journal on Computing},
   title =         {Exact Algorithms for Two-Dimensional Knapsack Problems: {A} Unified Framework with New Benchmark Results},
   year =          {2025},
-  doi =           {https://doi.org/10.1287/ijoc.2025.1423.cd},
+  doi =           {10.1287/ijoc.2025.1423.cd},
   url =           {https://github.com/INFORMSJoC/2025.1423},
   note =          {Available for download at https://github.com/INFORMSJoC/2025.1423},
 }
