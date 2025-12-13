@@ -169,11 +169,13 @@ where
 Moreover, we used the following Virtual Machine Options to compile and run the proposed algorithm:
 
 ```shell
--Djava.library.path=D:\WSKH\Environment\Cplex\Cplex_Library_And_Bin\Cplex1263\bin\x64_win64
+-Xms24G -Xmx24G -Djava.library.path=D:\WSKH\Environment\Cplex\Cplex_Library_And_Bin\Cplex1263\bin\x64_win64
 ```
 
 where
 
+-  **`-Xms24G`** sets the initial heap size to 24 GB.
+-  **`-Xmx24G`** the maximum heap size to 24 GB.
 -  **`-Djava.library.path=D:\WSKH\Environment\Cplex\Cplex_Library_And_Bin\Cplex1263\bin\x64_win64`** specifies the path to the native libraries for CPLEX, allowing JAVA to locate them for use.
 
 ### 🚀 Run
