@@ -4,11 +4,11 @@
 
 [![IJOC](https://img.shields.io/badge/INFORMS-Journal%20on%20Computing-3F7EBC?link=https%3A%2F%2Fpubsonline.informs.org%2Fjournal%2Fijoc)](https://pubsonline.informs.org/journal/ijoc) [![DOI](https://img.shields.io/badge/DOI-10.1287%2Fijoc.2025.1423.cd-3F7EBC)](https://doi.org/10.1287/ijoc.2025.1423.cd) [![LICENSE](https://img.shields.io/badge/LICENSE-MIT-3F7EBC)](https://mit-license.org/) [![Java](https://img.shields.io/badge/Java-F37439)](https://www.oracle.com/java/technologies/downloads/) [![Maven](https://img.shields.io/badge/Maven-5EBFA2)](https://maven.apache.org/) [![CPLEX](https://img.shields.io/badge/CPLEX-6F1970)](https://www.ibm.com/docs/en)
 
-This archive is distributed in association with the [INFORMS Journal on Computing](https://pubsonline.informs.org/journal/ijoc) under the [MIT License](LICENSE.txt).
+This archive is distributed in association with the [INFORMS Journal on Computing](https://pubsonline.informs.org/journal/ijoc) under the [MIT License](LICENSE).
 
 The software and data in this repository are a snapshot of the software and data that were used in the research reported on in the paper [Exact Algorithms for Two-Dimensional Knapsack Problems: A Unified Framework with New Benchmark Results](https://doi.org/10.1287/ijoc.2025.1423) by Sunkanghong Wang, Roberto Baldacci, Fabio Furini, Lijun Wei, and Qiang Liu. This snapshot corresponds to the version used in the published paper.
 
-**Important: This repository is being developed on an on-going basis at https://github.com/WSKH0929/EAs_For_2KPs. Please go there if you would like to get a more recent version or would like support**.
+**Important: This code is being developed on an on-going basis at https://github.com/WSKH0929/EAs_For_2KPs. Please go there if you would like to get a more recent version or would like support**.
 
 ## 🏷️ Cite
 
