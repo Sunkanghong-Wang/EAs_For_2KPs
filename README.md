@@ -47,7 +47,7 @@ In this work, we addressed the following strongly $\mathcal{NP}$-hard two-dimens
 
 We designed both non-numerically exact and numerically exact algorithms (N-NEA and NEA) for solving these problems.
 
-This comprehensive repository provides the complete source code of our algorithms, as well as all instance data, aggregated results, and detailed solutions involved in our work. The structure of the repository is shown below:
+This comprehensive repository provides the complete source code of our algorithms, as well as all instance data, detailed results, and solutions involved in our work. The structure of the repository is as follows:
 
 ```
 ├─Code
